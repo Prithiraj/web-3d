@@ -50,6 +50,7 @@ jobs:
             --disable-dev-shm-usage \
             --use-angle=swiftshader \
             --enable-unsafe-swiftshader \
+            --force-prefers-reduced-motion \
             --hide-scrollbars \
             --force-device-scale-factor=1 \
             --window-size=1600,1000 \
@@ -62,6 +63,7 @@ jobs:
             --disable-dev-shm-usage \
             --use-angle=swiftshader \
             --enable-unsafe-swiftshader \
+            --force-prefers-reduced-motion \
             --hide-scrollbars \
             --force-device-scale-factor=1 \
             --window-size=390,844 \
