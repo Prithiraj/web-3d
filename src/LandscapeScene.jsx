@@ -366,7 +366,7 @@ function Pebble({ position, scale, phase, reducedMotion }) {
   })
 
   return (
-    <mesh ref={ref} position={position} scale={scale} castShadow receiveShadow>
+    <mesh ref={ref} position={position} scale={scale} receiveShadow>
       <icosahedronGeometry args={[1, 3]} />
       <meshPhysicalMaterial color="#d4d6cd" roughness={0.98} clearcoat={0.01} />
     </mesh>
