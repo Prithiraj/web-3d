@@ -15,11 +15,69 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 24
+
       - name: Install dependencies
         run: npm install
+
       - name: Build
         run: npm run build
+
+      - name: Upload production build
+        uses: actions/upload-artifact@v4
+        with:
+          name: fidelity-rebuild-dist
+          path: dist
+          retention-days: 2
+
+      - name: Render visual QA
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium-browser || command -v chromium)"
+          echo "Using $CHROME"
+          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/web-3d-preview.log 2>&1 &
+          PREVIEW_PID=$!
+          trap 'kill $PREVIEW_PID || true' EXIT
+          sleep 3
+          "$CHROME" \
+            --headless=new \
+            --no-sandbox \
+            --disable-dev-shm-usage \
+            --use-angle=swiftshader \
+            --enable-unsafe-swiftshader \
+            --force-prefers-reduced-motion \
+            --hide-scrollbars \
+            --force-device-scale-factor=1 \
+            --window-size=1600,1000 \
+            --virtual-time-budget=6500 \
+            --screenshot=visual-qa-desktop.png \
+            http://127.0.0.1:4173/
+          "$CHROME" \
+            --headless=new \
+            --no-sandbox \
+            --disable-dev-shm-usage \
+            --use-angle=swiftshader \
+            --enable-unsafe-swiftshader \
+            --force-prefers-reduced-motion \
+            --hide-scrollbars \
+            --force-device-scale-factor=1 \
+            --window-size=390,844 \
+            --virtual-time-budget=6500 \
+            --screenshot=visual-qa-mobile.png \
+            http://127.0.0.1:4173/
+          test -s visual-qa-desktop.png
+          test -s visual-qa-mobile.png
+
+      - name: Upload visual QA
+        uses: actions/upload-artifact@v4
+        with:
+          name: fidelity-visual-qa
+          path: |
+            visual-qa-desktop.png
+            visual-qa-mobile.png
+          retention-days: 2

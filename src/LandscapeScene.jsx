@@ -1,174 +1,248 @@
-import { useLayoutEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
-import { ContactShadows, RoundedBox } from '@react-three/drei'
+import { ContactShadows, RoundedBox, SoftShadows } from '@react-three/drei'
 import * as THREE from 'three'
 
-const BASE_Y = -1.34
-
-const TUBE_A = [
-  [1.9, -1.08, 0.45],
-  [2.0, -0.15, 0.4],
-  [2.55, 0.5, 0.1],
-  [2.95, 1.15, -0.3],
-]
-
-const TUBE_B = [
-  [2.75, -1.12, 0.65],
-  [3.05, -0.35, 0.62],
-  [2.85, 0.38, 0.35],
-]
+const BASE_Y = -1.42
+const IVORY = '#e8e5da'
+const SAGE_FOG = '#aebba7'
 
 function seededRandom(seed) {
   let value = seed % 2147483647
   if (value <= 0) value += 2147483646
-
   return () => {
     value = (value * 16807) % 2147483647
     return (value - 1) / 2147483646
   }
 }
 
-function CameraRig({ reducedMotion }) {
-  useFrame(({ camera, pointer }, delta) => {
-    const targetX = reducedMotion ? 0 : pointer.x * 0.55
-    const targetY = reducedMotion ? 2.45 : 2.45 + pointer.y * 0.18
+function createCragGeometry(seed) {
+  const geometry = new THREE.IcosahedronGeometry(1, 4)
+  const position = geometry.attributes.position
 
-    camera.position.x = THREE.MathUtils.damp(camera.position.x, targetX, 3.2, delta)
-    camera.position.y = THREE.MathUtils.damp(camera.position.y, targetY, 3.2, delta)
-    camera.lookAt(0, -0.05, 0)
-  })
+  for (let index = 0; index < position.count; index += 1) {
+    let x = position.getX(index)
+    let y = position.getY(index)
+    let z = position.getZ(index)
+    const radius = Math.max(Math.sqrt(x * x + y * y + z * z), 0.0001)
+    const normalizedY = y / radius
+    const height = (normalizedY + 1) * 0.5
+    const angle = Math.atan2(z, x)
+    const taper = 1.16 - height * 0.46
+    const ridge =
+      Math.sin(angle * 5 + y * 2.8 + seed * 0.91) * 0.055 +
+      Math.sin(angle * 9 - y * 4.1 + seed * 1.37) * 0.023 +
+      Math.sin(y * 9 + seed * 0.63) * 0.018
+    const waist = 1 + Math.sin(height * Math.PI) * 0.08
 
-  return null
+    x *= taper * waist * (1 + ridge)
+    z *= taper * waist * (0.92 + ridge * 0.8)
+    y *= 1.26
+    x += height * 0.055 * Math.sin(seed * 1.7)
+    z += height * 0.04 * Math.cos(seed * 1.2)
+    position.setXYZ(index, x, y, z)
+  }
+
+  geometry.computeVertexNormals()
+  return geometry
 }
 
-function Mountain({ position, scale, color = '#d7d7cc', rotation = 0 }) {
+function Crag({ x, z, scale, seed, tone, rotation = 0 }) {
+  const geometry = useMemo(() => createCragGeometry(seed), [seed])
+  const [sx, sy, sz] = scale
+  const mountainY = sy * 0.84
+
   return (
-    <mesh position={position} scale={scale} rotation={[0, rotation, 0]} castShadow receiveShadow>
-      <icosahedronGeometry args={[1, 2]} />
-      <meshStandardMaterial color={color} roughness={1} flatShading />
+    <mesh
+      geometry={geometry}
+      position={[x, BASE_Y + mountainY * 1.13, z]}
+      rotation={[0, rotation, 0]}
+      scale={[sx * 0.94, mountainY, sz * 0.94]}
+      castShadow
+      receiveShadow
+    >
+      <meshPhysicalMaterial color={tone} roughness={0.99} metalness={0} clearcoat={0.01} />
     </mesh>
   )
 }
 
-function Mountains() {
+function MountainMass() {
   return (
     <group>
-      <Mountain position={[-3.9, 0.35, -1.25]} scale={[1.45, 2.4, 1.15]} rotation={0.25} />
-      <Mountain position={[-2.85, 0.05, -1.55]} scale={[1.15, 1.9, 0.95]} color="#c9cbc1" rotation={0.8} />
-      <Mountain position={[-4.75, -0.2, -0.55]} scale={[0.9, 1.55, 0.8]} color="#e0dfd5" rotation={0.5} />
-      <Mountain position={[-1.95, -0.35, -1.65]} scale={[0.75, 1.3, 0.72]} color="#bfc4b9" rotation={0.1} />
+      <Crag x={-4.38} z={-1.04} scale={[1.0, 1.92, 0.82]} seed={3} rotation={0.28} tone="#b9bcb3" />
+      <Crag x={-3.78} z={-1.2} scale={[0.82, 1.58, 0.76]} seed={6} rotation={-0.17} tone="#aeb4aa" />
+      <Crag x={-4.95} z={-0.6} scale={[0.65, 1.25, 0.6]} seed={9} rotation={0.5} tone="#cac8be" />
+      <Crag x={-3.18} z={-0.9} scale={[0.67, 1.23, 0.62]} seed={12} rotation={0.34} tone="#b9beb5" />
+      <Crag x={-2.72} z={-1.12} scale={[0.42, 0.88, 0.43]} seed={15} rotation={-0.36} tone="#c8c8be" />
+      <Crag x={-4.96} z={-1.22} scale={[0.44, 0.82, 0.42]} seed={18} tone="#a9aea6" />
     </group>
   )
 }
 
-function InstancedForest({ count = 58 }) {
-  const trunks = useRef()
-  const lowerNeedles = useRef()
-  const upperNeedles = useRef()
+function useForest(count = 44) {
+  return useMemo(() => {
+    const random = seededRandom(28411)
+    const trees = []
+    let attempts = 0
 
-  const trees = useMemo(() => {
-    const random = seededRandom(8128)
-    const items = []
+    while (trees.length < count && attempts < count * 10) {
+      attempts += 1
+      const x = -5.15 + random() * 10.3
+      const z = -0.08 + random() * 2.58
+      const centreKeepout = x > -1.45 && x < 1.72 && z > 0.18
+      const architectureKeepout = x > 2.05 && x < 4.72 && z > -0.05
+      const detailKeepout = x > -2.82 && x < -1.55 && z > 0.82
+      if (centreKeepout || architectureKeepout || detailKeepout) continue
 
-    for (let index = 0; index < count; index += 1) {
-      const sideBias = random() > 0.55 ? 1 : -1
-      const x = sideBias * (1.05 + random() * 4.15)
-      const z = -0.45 + random() * 2.4
-      const scale = 0.55 + random() * 0.72
-      const shade = random()
-      items.push({ x, z, scale, shade })
+      const depthScale = THREE.MathUtils.mapLinear(z, -0.08, 2.5, 0.63, 1.08)
+      trees.push({
+        x,
+        z,
+        scale: (0.34 + random() * 0.48) * depthScale,
+        rotation: random() * Math.PI,
+      })
     }
 
-    return items
+    return trees
   }, [count])
+}
+
+function InstancedForest({ count = 44 }) {
+  const trunks = useRef()
+  const low = useRef()
+  const middle = useRef()
+  const high = useRef()
+  const trees = useForest(count)
 
   useLayoutEffect(() => {
     const object = new THREE.Object3D()
 
     trees.forEach((tree, index) => {
-      const { x, z, scale } = tree
+      const { x, z, scale, rotation } = tree
 
-      object.position.set(x, BASE_Y + 0.27 * scale, z)
-      object.scale.set(0.07 * scale, 0.54 * scale, 0.07 * scale)
-      object.rotation.set(0, 0, 0)
+      object.position.set(x, BASE_Y + 0.23 * scale, z)
+      object.scale.set(0.05 * scale, 0.45 * scale, 0.05 * scale)
+      object.rotation.set(0, rotation, 0)
       object.updateMatrix()
       trunks.current.setMatrixAt(index, object.matrix)
 
-      object.position.set(x, BASE_Y + 0.72 * scale, z)
-      object.scale.set(0.43 * scale, 0.72 * scale, 0.43 * scale)
-      object.rotation.set(0, tree.shade * Math.PI, 0)
+      object.position.set(x, BASE_Y + 0.48 * scale, z)
+      object.scale.set(0.32 * scale, 0.47 * scale, 0.32 * scale)
+      object.rotation.set(0, rotation, 0)
       object.updateMatrix()
-      lowerNeedles.current.setMatrixAt(index, object.matrix)
+      low.current.setMatrixAt(index, object.matrix)
 
-      object.position.set(x, BASE_Y + 1.08 * scale, z)
-      object.scale.set(0.3 * scale, 0.62 * scale, 0.3 * scale)
-      object.rotation.set(0, tree.shade * Math.PI * 0.5, 0)
+      object.position.set(x, BASE_Y + 0.72 * scale, z)
+      object.scale.set(0.25 * scale, 0.41 * scale, 0.25 * scale)
+      object.rotation.set(0, rotation + 0.35, 0)
       object.updateMatrix()
-      upperNeedles.current.setMatrixAt(index, object.matrix)
+      middle.current.setMatrixAt(index, object.matrix)
+
+      object.position.set(x, BASE_Y + 0.93 * scale, z)
+      object.scale.set(0.17 * scale, 0.33 * scale, 0.17 * scale)
+      object.rotation.set(0, rotation + 0.65, 0)
+      object.updateMatrix()
+      high.current.setMatrixAt(index, object.matrix)
     })
 
-    trunks.current.instanceMatrix.needsUpdate = true
-    lowerNeedles.current.instanceMatrix.needsUpdate = true
-    upperNeedles.current.instanceMatrix.needsUpdate = true
+    ;[trunks, low, middle, high].forEach((ref) => {
+      ref.current.instanceMatrix.needsUpdate = true
+    })
   }, [trees])
 
   return (
     <group>
       <instancedMesh ref={trunks} args={[null, null, count]} castShadow receiveShadow>
-        <cylinderGeometry args={[1, 1.15, 1, 6]} />
-        <meshStandardMaterial color="#655e49" roughness={1} />
+        <cylinderGeometry args={[1, 1.08, 1, 8]} />
+        <meshStandardMaterial color="#675f4a" roughness={1} />
       </instancedMesh>
-      <instancedMesh ref={lowerNeedles} args={[null, null, count]} castShadow receiveShadow>
-        <coneGeometry args={[1, 1, 8]} />
-        <meshStandardMaterial color="#173c2b" roughness={0.92} />
+      <instancedMesh ref={low} args={[null, null, count]} castShadow receiveShadow>
+        <coneGeometry args={[1, 1, 14]} />
+        <meshStandardMaterial color="#153b2b" roughness={0.98} />
       </instancedMesh>
-      <instancedMesh ref={upperNeedles} args={[null, null, count]} castShadow receiveShadow>
-        <coneGeometry args={[1, 1, 8]} />
-        <meshStandardMaterial color="#25563a" roughness={0.92} />
+      <instancedMesh ref={middle} args={[null, null, count]} castShadow receiveShadow>
+        <coneGeometry args={[1, 1, 14]} />
+        <meshStandardMaterial color="#205239" roughness={0.98} />
+      </instancedMesh>
+      <instancedMesh ref={high} args={[null, null, count]} castShadow receiveShadow>
+        <coneGeometry args={[1, 1, 14]} />
+        <meshStandardMaterial color="#34704e" roughness={0.98} />
       </instancedMesh>
     </group>
   )
 }
 
-function Pod({ position = [0, BASE_Y, 0], scale = 1 }) {
+function ShrubCluster() {
+  const shrubs = useMemo(() => {
+    const random = seededRandom(9441)
+    return Array.from({ length: 17 }, (_, index) => ({
+      x: -1.85 + random() * 6.45,
+      z: 0.12 + random() * 1.7,
+      size: 0.11 + random() * 0.15,
+      index,
+    })).filter(({ x }) => !(x > -1.08 && x < 1.62))
+  }, [])
+
+  return (
+    <group>
+      {shrubs.map((shrub) => (
+        <mesh
+          key={shrub.index}
+          position={[shrub.x, BASE_Y + shrub.size * 0.72, shrub.z]}
+          scale={[shrub.size * 1.15, shrub.size * 0.8, shrub.size]}
+          castShadow
+          receiveShadow
+        >
+          <icosahedronGeometry args={[1, 2]} />
+          <meshStandardMaterial color={shrub.index % 2 ? '#71934e' : '#587d40'} roughness={1} />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+
+function DomeShelter({ position, scale = 1 }) {
   return (
     <group position={position} scale={scale}>
       <mesh castShadow receiveShadow>
-        <sphereGeometry args={[0.72, 32, 18, 0, Math.PI * 2, 0, Math.PI / 2]} />
-        <meshStandardMaterial color="#e8e5da" roughness={0.78} />
+        <sphereGeometry args={[0.62, 48, 24, 0, Math.PI * 2, 0, Math.PI / 2]} />
+        <meshPhysicalMaterial color={IVORY} roughness={0.92} clearcoat={0.018} />
       </mesh>
-      <mesh position={[0, 0.23, 0.704]} scale={[0.28, 0.34, 1]}>
-        <circleGeometry args={[1, 32]} />
-        <meshStandardMaterial color="#173126" roughness={1} />
-      </mesh>
-      <mesh position={[0, 0.08, 0.71]} scale={[0.56, 0.2, 0.04]}>
-        <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial color="#173126" roughness={1} />
+      <RoundedBox args={[0.28, 0.4, 0.06]} radius={0.11} smoothness={5} position={[0, 0.2, 0.61]} castShadow>
+        <meshStandardMaterial color="#183126" roughness={1} />
+      </RoundedBox>
+      <mesh position={[0, 0.02, 0]} receiveShadow>
+        <cylinderGeometry args={[0.64, 0.64, 0.06, 48]} />
+        <meshStandardMaterial color="#d8d4c7" roughness={1} />
       </mesh>
     </group>
   )
 }
 
-function Arch({ position = [0, BASE_Y, 0], scale = 1 }) {
+function ArchPassage({ position, scale = 1 }) {
   return (
     <group position={position} scale={scale}>
-      <mesh position={[0, 0.6, 0]} castShadow>
-        <torusGeometry args={[0.62, 0.14, 16, 48, Math.PI]} />
-        <meshStandardMaterial color="#ece9de" roughness={0.72} />
+      <mesh position={[0, 0.59, 0]} castShadow receiveShadow>
+        <torusGeometry args={[0.57, 0.13, 18, 56, Math.PI]} />
+        <meshPhysicalMaterial color="#ece8dc" roughness={0.88} clearcoat={0.025} />
       </mesh>
-      <mesh position={[-0.62, 0.3, 0]} castShadow>
-        <cylinderGeometry args={[0.14, 0.14, 0.6, 20]} />
-        <meshStandardMaterial color="#ece9de" roughness={0.72} />
+      <mesh position={[-0.57, 0.29, 0]} castShadow receiveShadow>
+        <cylinderGeometry args={[0.13, 0.13, 0.58, 24]} />
+        <meshStandardMaterial color="#ece8dc" roughness={0.92} />
       </mesh>
-      <mesh position={[0.62, 0.3, 0]} castShadow>
-        <cylinderGeometry args={[0.14, 0.14, 0.6, 20]} />
-        <meshStandardMaterial color="#ece9de" roughness={0.72} />
+      <mesh position={[0.57, 0.29, 0]} castShadow receiveShadow>
+        <cylinderGeometry args={[0.13, 0.13, 0.58, 24]} />
+        <meshStandardMaterial color="#ece8dc" roughness={0.92} />
+      </mesh>
+      <mesh position={[0, 0.27, -0.06]} receiveShadow>
+        <planeGeometry args={[0.9, 0.54]} />
+        <meshStandardMaterial color="#213d31" roughness={1} />
       </mesh>
     </group>
   )
 }
 
-function FlowTube({ points, radius = 0.16 }) {
+function FlowTube({ points, radius = 0.14 }) {
   const curve = useMemo(
     () => new THREE.CatmullRomCurve3(points.map((point) => new THREE.Vector3(...point))),
     [points],
@@ -176,134 +250,262 @@ function FlowTube({ points, radius = 0.16 }) {
 
   return (
     <mesh castShadow receiveShadow>
-      <tubeGeometry args={[curve, 64, radius, 12, false]} />
-      <meshStandardMaterial color="#e5e2d7" roughness={0.68} />
+      <tubeGeometry args={[curve, 80, radius, 20, false]} />
+      <meshPhysicalMaterial color="#e8e5da" roughness={0.8} clearcoat={0.035} />
     </mesh>
   )
 }
 
-function Architecture() {
+function MicroDetails() {
   return (
     <group>
-      <Pod position={[-0.35, BASE_Y, 0.82]} scale={0.86} />
-      <Arch position={[0.95, BASE_Y, 0.86]} scale={0.82} />
-      <FlowTube points={TUBE_A} radius={0.18} />
-      <FlowTube points={TUBE_B} radius={0.15} />
+      <group position={[-2.25, BASE_Y, 1.33]}>
+        <mesh position={[-0.24, 0.2, 0]} castShadow receiveShadow>
+          <boxGeometry args={[0.045, 0.4, 0.045]} />
+          <meshStandardMaterial color="#9a7449" roughness={1} />
+        </mesh>
+        <mesh position={[0.24, 0.2, 0]} castShadow receiveShadow>
+          <boxGeometry args={[0.045, 0.4, 0.045]} />
+          <meshStandardMaterial color="#9a7449" roughness={1} />
+        </mesh>
+        <mesh position={[0, 0.41, 0]} castShadow receiveShadow>
+          <boxGeometry args={[0.62, 0.055, 0.065]} />
+          <meshStandardMaterial color="#9a7449" roughness={1} />
+        </mesh>
+      </group>
 
-      <mesh position={[3.72, -0.22, -0.45]} castShadow>
-        <boxGeometry args={[0.48, 2.45, 0.48]} />
-        <meshStandardMaterial color="#e3e0d5" roughness={0.8} />
+      <group position={[-1.62, BASE_Y, 1.45]}>
+        <mesh position={[0, 0.12, 0]} castShadow receiveShadow>
+          <boxGeometry args={[0.48, 0.045, 0.15]} />
+          <meshStandardMaterial color="#a48155" roughness={1} />
+        </mesh>
+        <mesh position={[-0.17, 0.055, 0]} castShadow><boxGeometry args={[0.035, 0.11, 0.08]} /><meshStandardMaterial color="#766347" roughness={1} /></mesh>
+        <mesh position={[0.17, 0.055, 0]} castShadow><boxGeometry args={[0.035, 0.11, 0.08]} /><meshStandardMaterial color="#766347" roughness={1} /></mesh>
+      </group>
+
+      <group position={[4.58, BASE_Y, 1.23]}>
+        <mesh position={[0, 0.22, 0]} castShadow receiveShadow><boxGeometry args={[0.68, 0.44, 0.32]} /><meshStandardMaterial color="#ebe7dc" roughness={0.94} /></mesh>
+        <mesh position={[0, 0.24, 0.166]} castShadow><boxGeometry args={[0.24, 0.035, 0.01]} /><meshStandardMaterial color="#314a3d" roughness={1} /></mesh>
+      </group>
+    </group>
+  )
+}
+
+function SlowDisc({ reducedMotion }) {
+  const ref = useRef()
+
+  useFrame(({ clock }, delta) => {
+    if (!ref.current || reducedMotion) return
+    ref.current.rotation.z += delta * 0.035
+    ref.current.position.y = BASE_Y + 0.67 + Math.sin(clock.elapsedTime * 0.28) * 0.012
+  })
+
+  return (
+    <group ref={ref} position={[3.16, BASE_Y + 0.67, 0.53]} rotation={[Math.PI / 2, 0, 0]}>
+      <mesh castShadow receiveShadow>
+        <cylinderGeometry args={[0.3, 0.3, 0.12, 48]} />
+        <meshPhysicalMaterial color="#ece9de" roughness={0.86} clearcoat={0.025} />
       </mesh>
-      <mesh position={[4.25, -0.48, -0.25]} castShadow>
-        <boxGeometry args={[0.33, 1.95, 0.42]} />
-        <meshStandardMaterial color="#f0ede2" roughness={0.82} />
-      </mesh>
-      <mesh position={[3.2, -0.82, 0.38]} castShadow rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[0.39, 0.11, 16, 40]} />
-        <meshStandardMaterial color="#eeeade" roughness={0.72} />
+      <mesh position={[0, 0.065, 0]}>
+        <cylinderGeometry args={[0.038, 0.038, 0.02, 24]} />
+        <meshStandardMaterial color="#516257" roughness={1} />
       </mesh>
     </group>
   )
 }
 
-function FloatingStone({ position, scale = 0.25, speed = 0.5, phase = 0, reducedMotion }) {
+function Architecture({ reducedMotion }) {
+  const tubeA = useMemo(() => [
+    [2.12, BASE_Y + 0.04, 0.42],
+    [2.24, BASE_Y + 0.85, 0.28],
+    [2.68, BASE_Y + 1.36, 0.02],
+    [2.86, BASE_Y + 1.88, -0.25],
+  ], [])
+  const tubeB = useMemo(() => [
+    [2.76, BASE_Y + 0.04, 0.72],
+    [2.98, BASE_Y + 0.56, 0.74],
+    [2.82, BASE_Y + 1.0, 0.52],
+  ], [])
+
+  return (
+    <group>
+      <DomeShelter position={[-0.42, BASE_Y, 0.86]} scale={0.78} />
+      <ArchPassage position={[0.86, BASE_Y, 0.9]} scale={0.75} />
+      <mesh position={[-1.14, BASE_Y - 0.01, 0.9]} castShadow receiveShadow>
+        <boxGeometry args={[1.9, 0.07, 0.42]} />
+        <meshStandardMaterial color="#aa8e65" roughness={0.98} />
+      </mesh>
+      <FlowTube points={tubeA} radius={0.13} />
+      <FlowTube points={tubeB} radius={0.11} />
+      <mesh position={[2.57, BASE_Y + 0.82, 0.48]} rotation={[0.03, 0.18, 0]} castShadow receiveShadow>
+        <torusGeometry args={[0.33, 0.095, 18, 52]} />
+        <meshPhysicalMaterial color="#ece8dc" roughness={0.86} clearcoat={0.025} />
+      </mesh>
+      <RoundedBox args={[0.34, 2.04, 0.42]} radius={0.035} smoothness={4} position={[3.52, BASE_Y + 1.02, -0.42]} castShadow receiveShadow>
+        <meshStandardMaterial color="#dfddd2" roughness={0.92} />
+      </RoundedBox>
+      <RoundedBox args={[0.27, 1.62, 0.37]} radius={0.03} smoothness={4} position={[3.98, BASE_Y + 0.81, -0.1]} castShadow receiveShadow>
+        <meshStandardMaterial color="#ece9df" roughness={0.93} />
+      </RoundedBox>
+      <RoundedBox args={[0.21, 1.12, 0.31]} radius={0.03} smoothness={4} position={[4.35, BASE_Y + 0.56, 0.08]} castShadow receiveShadow>
+        <meshStandardMaterial color="#d7d5ca" roughness={0.94} />
+      </RoundedBox>
+      <SlowDisc reducedMotion={reducedMotion} />
+    </group>
+  )
+}
+
+function Pebble({ position, scale, phase, reducedMotion }) {
   const ref = useRef()
-  const baseY = position[1]
 
   useFrame(({ clock }, delta) => {
     if (!ref.current || reducedMotion) return
-    ref.current.rotation.x += delta * 0.12
-    ref.current.rotation.y += delta * 0.18
-    ref.current.position.y = baseY + Math.sin(clock.elapsedTime * speed + phase) * 0.12
+    ref.current.rotation.y += delta * 0.07
+    ref.current.rotation.x += delta * 0.04
+    ref.current.position.y = position[1] + Math.sin(clock.elapsedTime * 0.34 + phase) * 0.04
   })
 
   return (
-    <mesh ref={ref} position={position} scale={scale} castShadow>
-      <icosahedronGeometry args={[1, 2]} />
-      <meshStandardMaterial color="#d8dcd3" roughness={0.94} flatShading />
+    <mesh ref={ref} position={position} scale={scale} receiveShadow>
+      <icosahedronGeometry args={[1, 3]} />
+      <meshPhysicalMaterial color="#d4d6cd" roughness={0.98} clearcoat={0.01} />
     </mesh>
   )
 }
 
-function SceneContent() {
-  const reducedMotion = useMemo(
-    () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
-    [],
+function PresentationBase() {
+  return (
+    <group>
+      <RoundedBox
+        args={[11.15, 0.15, 3.48]}
+        radius={0.045}
+        smoothness={4}
+        position={[0, BASE_Y - 0.1, 0.38]}
+        receiveShadow
+      >
+        <meshStandardMaterial color="#ddd9ce" roughness={0.99} />
+      </RoundedBox>
+      <mesh position={[0, BASE_Y - 0.205, 0.38]} receiveShadow>
+        <boxGeometry args={[11.38, 0.065, 3.64]} />
+        <meshStandardMaterial color="#c9c7bc" roughness={1} />
+      </mesh>
+    </group>
   )
+}
+
+function CameraRig({ reducedMotion }) {
+  const scrollProgress = useRef(0)
+  const lookAt = useRef(new THREE.Vector3(0, -0.2, 0.45))
+
+  useEffect(() => {
+    if (reducedMotion) return undefined
+
+    const onScroll = () => {
+      const denominator = Math.max(window.innerHeight * 0.9, 1)
+      scrollProgress.current = THREE.MathUtils.clamp(window.scrollY / denominator, 0, 1)
+    }
+
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [reducedMotion])
+
+  useFrame(({ camera, pointer, size }, delta) => {
+    const mobile = size.width < 680
+    const scroll = reducedMotion ? 0 : scrollProgress.current
+    const pointerX = reducedMotion ? 0 : pointer.x
+    const pointerY = reducedMotion ? 0 : pointer.y
+
+    const baseY = mobile ? 1.98 : 2.18
+    const baseZ = mobile ? 15.65 : 14.55
+    const targetX = pointerX * (mobile ? 0.07 : 0.16)
+    const targetY = baseY + pointerY * 0.055 + scroll * 0.1
+    const targetZ = baseZ - scroll * (mobile ? 0.18 : 0.34)
+
+    camera.position.x = THREE.MathUtils.damp(camera.position.x, targetX, 4.2, delta)
+    camera.position.y = THREE.MathUtils.damp(camera.position.y, targetY, 4.2, delta)
+    camera.position.z = THREE.MathUtils.damp(camera.position.z, targetZ, 4.2, delta)
+
+    const lookX = pointerX * 0.025
+    const lookY = (mobile ? -0.12 : -0.22) + scroll * 0.035
+    const lookZ = mobile ? 0.58 : 0.44
+
+    lookAt.current.x = THREE.MathUtils.damp(lookAt.current.x, lookX, 4.2, delta)
+    lookAt.current.y = THREE.MathUtils.damp(lookAt.current.y, lookY, 4.2, delta)
+    lookAt.current.z = THREE.MathUtils.damp(lookAt.current.z, lookZ, 4.2, delta)
+    camera.lookAt(lookAt.current)
+  })
+
+  return null
+}
+
+function World({ reducedMotion }) {
+  return (
+    <group position={[0, -0.02, 0]}>
+      <PresentationBase />
+      <MountainMass />
+      <ShrubCluster />
+      <MicroDetails />
+      <Architecture reducedMotion={reducedMotion} />
+      <InstancedForest count={44} />
+      <Pebble position={[-4.92, 2.12, -0.32]} scale={[0.14, 0.105, 0.125]} phase={0.2} reducedMotion={reducedMotion} />
+      <Pebble position={[-2.06, 2.76, -0.72]} scale={[0.09, 0.07, 0.08]} phase={1.4} reducedMotion={reducedMotion} />
+      <Pebble position={[3.76, 2.2, -0.6]} scale={[0.29, 0.25, 0.27]} phase={2.1} reducedMotion={reducedMotion} />
+      <Pebble position={[4.68, 1.24, 0.36]} scale={[0.105, 0.08, 0.095]} phase={3.2} reducedMotion={reducedMotion} />
+    </group>
+  )
+}
+
+function SceneContent() {
+  const reducedMotion = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches, [])
 
   return (
     <>
-      <color attach="background" args={['#afbea9']} />
-      <fog attach="fog" args={['#afbea9', 9.5, 18]} />
+      <fog attach="fog" args={[SAGE_FOG, 10.4, 19]} />
+      <SoftShadows size={22} samples={10} focus={0.35} />
 
-      <ambientLight intensity={1.2} />
-      <hemisphereLight args={['#edf0e7', '#405449', 1.2]} />
+      <ambientLight intensity={0.5} />
+      <hemisphereLight args={['#f1eee5', '#405b4b', 0.82]} />
+
       <directionalLight
-        position={[4, 8, 6]}
-        intensity={2.5}
+        position={[-5.4, 8.7, 6.2]}
+        intensity={2.28}
+        color="#fff5df"
         castShadow
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}
-        shadow-camera-near={1}
-        shadow-camera-far={22}
-        shadow-camera-left={-8}
-        shadow-camera-right={8}
-        shadow-camera-top={8}
-        shadow-camera-bottom={-6}
+        shadow-camera-near={0.5}
+        shadow-camera-far={24}
+        shadow-camera-left={-7}
+        shadow-camera-right={7}
+        shadow-camera-top={6}
+        shadow-camera-bottom={-5}
+        shadow-bias={-0.00035}
+        shadow-normalBias={0.025}
+        shadow-radius={4}
       />
+      <directionalLight position={[4.6, 3.1, 5.2]} intensity={0.3} color="#d7e5d8" />
+      <directionalLight position={[1.5, 4.4, -5.5]} intensity={0.16} color="#f2efe7" />
 
       <CameraRig reducedMotion={reducedMotion} />
-
-      <RoundedBox
-        args={[11.4, 0.24, 4.6]}
-        radius={0.08}
-        smoothness={4}
-        position={[0, -1.5, 0.3]}
-        receiveShadow
-      >
-        <meshStandardMaterial color="#ddd9cb" roughness={0.9} />
-      </RoundedBox>
-
-      <Mountains />
-      <InstancedForest />
-      <Architecture />
-
-      <FloatingStone
-        position={[-4.65, 2.72, 0.2]}
-        scale={0.22}
-        speed={0.42}
-        phase={0.5}
-        reducedMotion={reducedMotion}
-      />
-      <FloatingStone
-        position={[-1.55, 3.36, -0.8]}
-        scale={0.17}
-        speed={0.52}
-        phase={1.8}
-        reducedMotion={reducedMotion}
-      />
-      <FloatingStone
-        position={[3.55, 2.55, -0.5]}
-        scale={0.46}
-        speed={0.36}
-        phase={2.4}
-        reducedMotion={reducedMotion}
-      />
-      <FloatingStone
-        position={[4.72, 1.18, 0.8]}
-        scale={0.17}
-        speed={0.48}
-        phase={3.1}
-        reducedMotion={reducedMotion}
-      />
+      <World reducedMotion={reducedMotion} />
 
       <ContactShadows
-        position={[0, -1.37, 0.4]}
-        scale={13}
-        opacity={0.34}
-        blur={2.5}
-        far={3.8}
+        position={[0, BASE_Y - 0.012, 0.38]}
+        scale={11.8}
+        opacity={0.28}
+        blur={1.75}
+        far={2.8}
         resolution={1024}
+        frames={1}
+      />
+      <ContactShadows
+        position={[0, BASE_Y - 0.02, 0.38]}
+        scale={12.4}
+        opacity={0.1}
+        blur={5}
+        far={5.1}
+        resolution={512}
         frames={1}
       />
     </>
@@ -314,9 +516,17 @@ export default function LandscapeScene() {
   return (
     <Canvas
       shadows
-      dpr={[1, 1.75]}
-      camera={{ position: [0, 2.45, 11], fov: 35, near: 0.1, far: 60 }}
-      gl={{ antialias: true, powerPreference: 'high-performance' }}
+      dpr={[1, 1.5]}
+      camera={{ position: [0, 2.18, 14.55], fov: 25.5, near: 0.1, far: 50 }}
+      gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
+      onCreated={({ gl }) => {
+        gl.shadowMap.enabled = true
+        gl.shadowMap.type = THREE.PCFSoftShadowMap
+        gl.toneMapping = THREE.ACESFilmicToneMapping
+        gl.toneMappingExposure = 0.95
+        gl.outputColorSpace = THREE.SRGBColorSpace
+        gl.setClearColor(0x000000, 0)
+      }}
     >
       <SceneContent />
     </Canvas>
